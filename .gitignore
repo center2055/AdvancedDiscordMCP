@@ -41,3 +41,6 @@ venv.bak/
 
 # Logs
 *.log
+
+# Reddit post (local only, not for GitHub)
+REDDIT_POST.md
