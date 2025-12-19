@@ -1,10 +1,10 @@
 # Discord MCP Server (Enhanced Fork)
 
-A powerful Model Context Protocol (MCP) server that provides comprehensive Discord integration capabilities to MCP clients like Cursor and Claude Desktop. This is an **enhanced fork** of the original [mcp-discord](https://github.com/pashpashpash/mcp-discord) project with an **immense amount of new features** added.
+A powerful Model Context Protocol (MCP) server that provides comprehensive Discord integration capabilities to any MCP-compatible client. This is an **enhanced fork** of the original [mcp-discord](https://github.com/pashpashpash/mcp-discord) project with an **immense amount of new features** added.
 
 ## 🚀 What is This?
 
-This Discord MCP Server allows AI assistants (like those in Cursor IDE or Claude Desktop) to interact with and manage Discord servers directly through the Model Context Protocol. You can perform server management, moderation, analytics, automation, and much more - all through natural language commands to your AI assistant.
+This Discord MCP Server allows AI assistants to interact with and manage Discord servers directly through the Model Context Protocol. You can perform server management, moderation, analytics, automation, and much more - all through natural language commands to your AI assistant.
 
 ## ✨ New Features in This Fork
 
@@ -112,39 +112,11 @@ All original features are preserved:
 
 ## ⚙️ Configuration
 
-### For Cursor IDE
+### MCP Client Configuration
 
-1. **Open Cursor Settings**:
-   - Go to `Settings` → `Features` → `MCP`
-   - Click `+ Add New MCP Server`
+Configure this server in your MCP-compatible client's configuration file. The exact location and format depends on your client, but typically follows this structure:
 
-2. **Configure the MCP Server**:
-   - **Name:** `discord` (or any name you prefer)
-   - **Type:** `stdio`
-   - **Command:** Path to your Python executable
-     ```
-     D:\path\to\mcp-discord-main\venv\Scripts\python.exe
-     ```
-   - **Args:** 
-     ```
-     -m
-     discord_mcp
-     ```
-   - **Working Directory (cwd):**
-     ```
-     D:\path\to\mcp-discord-main
-     ```
-   - **Environment Variables:**
-     - **Name:** `DISCORD_TOKEN`
-     - **Value:** Your Discord bot token
-
-3. **Save and Restart Cursor**
-
-### For Claude Desktop
-
-Add this to your `claude_desktop_config.json`:
-- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- **Windows**: `%APPDATA%/Claude/claude_desktop_config.json`
+**Example Configuration (JSON format):**
 
 ```json
 {
@@ -161,9 +133,18 @@ Add this to your `claude_desktop_config.json`:
 }
 ```
 
+**Configuration Details:**
+- **command**: Path to your Python executable (or `python` if in PATH)
+  - Example: `D:\path\to\mcp-discord-main\venv\Scripts\python.exe` (Windows)
+  - Example: `/path/to/mcp-discord-main/venv/bin/python` (macOS/Linux)
+- **args**: `["-m", "discord_mcp"]`
+- **cwd**: Path to the cloned repository directory
+- **env.DISCORD_TOKEN**: Your Discord bot token
+
 **Note**: 
 - Replace `"path/to/mcp-discord-main"` with the actual path to your cloned repository
 - Replace `"your_bot_token"` with your Discord bot token
+- Consult your MCP client's documentation for the exact configuration file location and format
 
 ## 🎯 Usage Examples
 
@@ -219,9 +200,12 @@ Once configured, you can use natural language commands with your AI assistant:
 
 ### Debugging
 
-Check Cursor's MCP logs for detailed error messages:
-- Look for MCP-related errors in Cursor's output panel
+Check your MCP client's logs for detailed error messages:
+- Look for MCP-related errors in your client's output panel or log files
 - The bot connection status should appear in logs
+- Common log locations:
+  - MCP client output/console
+  - Application-specific log directories
 
 ## 📚 Feature Documentation
 

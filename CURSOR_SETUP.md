@@ -1,10 +1,10 @@
-# Cursor MCP Setup Guide
+# MCP Client Setup Guide
 
 ## Quick Setup Steps
 
-1. **Open Cursor Settings**
-   - Go to `Settings` > `Features` > `MCP`
-   - Click `+ Add New MCP Server`
+1. **Open your MCP client's settings/configuration**
+   - Locate the MCP server configuration section
+   - Add a new MCP server entry
 
 2. **Configure the MCP Server**
    - **Name:** `discord` (or any name you prefer)
@@ -12,6 +12,10 @@
    - **Command:** Path to your Python executable
      ```
      D:\path\to\mcp-discord-main\venv\Scripts\python.exe
+     ```
+     Or on macOS/Linux:
+     ```
+     /path/to/mcp-discord-main/venv/bin/python
      ```
    - **Args:** 
      ```
@@ -27,13 +31,13 @@
        - **Name:** `DISCORD_TOKEN`
        - **Value:** `your_bot_token_here`
 
-3. **Save and Restart Cursor**
-   - Click Save
-   - Restart Cursor to apply changes
+3. **Save and Restart your MCP client**
+   - Save the configuration
+   - Restart your MCP client to apply changes
 
 4. **Verify Connection**
-   - Go to `Settings` > `Features` > `MCP`
-   - Check that the discord server shows as connected
+   - Check your MCP client's connection status
+   - Verify that the discord server shows as connected
 
 ## Testing the Setup
 
