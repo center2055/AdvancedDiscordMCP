@@ -319,6 +319,14 @@ async def list_tools() -> List[Tool]:
     return [
         # Server Information Tools
         Tool(
+            name="list_servers",
+            description="List all Discord servers (guilds) the bot is a member of",
+            inputSchema={
+                "type": "object",
+                "properties": {}
+            }
+        ),
+        Tool(
             name="get_server_info",
             description="Get information about a Discord server",
             inputSchema={
@@ -2608,6 +2616,29 @@ async def call_tool(name: str, arguments: Any) -> List[TextContent]:
         )]
 
     # Server Information Tools
+    elif name == "list_servers":
+        servers = []
+        for guild in discord_client.guilds:
+            servers.append({
+                "id": str(guild.id),
+                "name": guild.name,
+                "member_count": guild.member_count,
+                "owner_id": str(guild.owner_id) if guild.owner_id else None,
+                "created_at": guild.created_at.isoformat() if guild.created_at else None
+            })
+        
+        if not servers:
+            return [TextContent(type="text", text="Bot is not a member of any servers.")]
+        
+        server_list = "\n".join(
+            f"{s['name']} (ID: {s['id']}, Members: {s['member_count']}, Owner: {s['owner_id']})"
+            for s in servers
+        )
+        return [TextContent(
+            type="text",
+            text=f"Servers the bot is in ({len(servers)}):\n{server_list}"
+        )]
+
     elif name == "get_server_info":
         guild = await discord_client.fetch_guild(int(arguments["server_id"]))
         info = {
