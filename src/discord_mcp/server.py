@@ -4105,15 +4105,19 @@ async def call_tool(name: str, arguments: Any) -> List[TextContent]:
         channel_type = arguments.get("channel_type", "all")
         
         channels = []
-        for channel in guild.channels:
+        for channel in sorted(guild.channels, key=lambda c: (c.position if hasattr(c, 'position') else 0, c.name)):
+            channel_info = f"{channel.name} (ID: {channel.id})"
+            if hasattr(channel, 'category') and channel.category:
+                channel_info += f" [Category: {channel.category.name}]"
+            
             if channel_type == "all":
-                channels.append(f"{channel.name} ({channel.type.name}, ID: {channel.id})")
+                channels.append(f"{channel_info} - {channel.type.name}")
             elif channel_type == "text" and isinstance(channel, discord.TextChannel):
-                channels.append(f"{channel.name} (ID: {channel.id})")
+                channels.append(channel_info)
             elif channel_type == "voice" and isinstance(channel, discord.VoiceChannel):
-                channels.append(f"{channel.name} (ID: {channel.id})")
+                channels.append(channel_info)
             elif channel_type == "category" and isinstance(channel, discord.CategoryChannel):
-                channels.append(f"{channel.name} (ID: {channel.id})")
+                channels.append(channel_info)
         
         return [TextContent(
             type="text",
