@@ -37,9 +37,10 @@ A Model Context Protocol (MCP) server that provides Discord integration capabili
 ### Role Management
 - `create_role`: Create a new role in a server
 - `delete_role`: Delete a role from a server
-- `modify_role`: Modify role properties (name, color, permissions, etc.)
+- `modify_role`: Modify role properties (name, color, permissions, position, etc.)
 - `list_roles`: List all roles in a server with details
 - `get_role_info`: Get detailed information about a specific role
+- `set_role_hierarchy`: Set the role hierarchy by specifying role order (from highest to lowest)
 - `add_role`: Add a role to a user
 - `remove_role`: Remove a role from a user
 
@@ -104,6 +105,8 @@ This enhanced fork includes **extensive new features** beyond the original proje
 - **Enhanced `list_channels`**: Now displays channel categories and sorts channels by position
 - **Category Support in `modify_channel`**: Move channels between categories or remove them from categories
 - **`list_servers` Tool**: List all servers the bot is a member of
+- **Role Hierarchy Management**: New `set_role_hierarchy` tool to configure role order and hierarchy
+- **Position Support in `modify_role`**: Set individual role positions to control hierarchy
 
 ### Permission Management
 - `check_bot_permissions`: Check what permissions the bot has in a channel or server

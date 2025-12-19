@@ -1582,6 +1582,10 @@ async def list_tools() -> List[Tool]:
                     "mentionable": {
                         "type": "boolean",
                         "description": "Whether the role is mentionable"
+                    },
+                    "position": {
+                        "type": "number",
+                        "description": "Role position (higher = higher in hierarchy, 0 = lowest)"
                     }
                 },
                 "required": ["server_id", "role_id"]
@@ -1617,6 +1621,31 @@ async def list_tools() -> List[Tool]:
                     }
                 },
                 "required": ["server_id", "role_id"]
+            }
+        ),
+        Tool(
+            name="set_role_hierarchy",
+            description="Set the role hierarchy by specifying role order (from highest to lowest). Higher positions = higher in hierarchy.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "server_id": {
+                        "type": "string",
+                        "description": "Discord server ID"
+                    },
+                    "role_ids": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "description": "Array of role IDs in desired order (first = highest, last = lowest). Only include roles you want to reorder."
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Reason for hierarchy change"
+                    }
+                },
+                "required": ["server_id", "role_ids"]
             }
         ),
 
@@ -4074,6 +4103,9 @@ async def call_tool(name: str, arguments: Any) -> List[TextContent]:
         if "mentionable" in arguments:
             kwargs["mentionable"] = arguments["mentionable"]
         
+        if "position" in arguments:
+            kwargs["position"] = int(arguments["position"])
+        
         await role.edit(**kwargs)
         return [TextContent(type="text", text=f"Modified role: {role.name}")]
 
@@ -4101,6 +4133,51 @@ async def call_tool(name: str, arguments: Any) -> List[TextContent]:
         return [TextContent(
             type="text",
             text=f"Role information:\n" + "\n".join(f"{k}: {v}" for k, v in info.items())
+        )]
+
+    elif name == "set_role_hierarchy":
+        guild = await discord_client.fetch_guild(int(arguments["server_id"]))
+        role_ids = [int(rid) for rid in arguments["role_ids"]]
+        reason = arguments.get("reason", "Role hierarchy updated via MCP")
+        
+        # Get the roles to reorder
+        roles_to_reorder = []
+        for role_id in role_ids:
+            role = guild.get_role(role_id)
+            if not role:
+                raise ValueError(f"Role with ID {role_id} not found")
+            if role.is_default():
+                raise ValueError("Cannot reorder @everyone role")
+            roles_to_reorder.append(role)
+        
+        # Get all roles sorted by current position (highest first)
+        all_roles = sorted([r for r in guild.roles if not r.is_default()], key=lambda r: r.position, reverse=True)
+        
+        # Find the highest position among roles not being reordered
+        other_roles = [r for r in all_roles if r.id not in role_ids]
+        base_position = max((r.position for r in other_roles), default=0) if other_roles else 0
+        
+        # Assign new positions: first role in list = highest, last = lowest
+        # Start from base_position + number of roles to ensure we're above existing roles
+        new_positions = {}
+        start_position = base_position + len(roles_to_reorder) + 1
+        
+        for i, role in enumerate(roles_to_reorder):
+            new_positions[role.id] = start_position - i
+        
+        # Update roles in reverse order (lowest to highest) to avoid position conflicts
+        updated_roles = []
+        for role in reversed(roles_to_reorder):
+            try:
+                await role.edit(position=new_positions[role.id], reason=reason)
+                updated_roles.append(f"{role.name} (position: {new_positions[role.id]})")
+            except Exception as e:
+                updated_roles.append(f"{role.name} (error: {str(e)})")
+        
+        hierarchy_list = "\n".join(f"{i+1}. {r.name} (ID: {r.id})" for i, r in enumerate(roles_to_reorder))
+        return [TextContent(
+            type="text",
+            text=f"Role hierarchy updated:\n\nNew order (highest to lowest):\n{hierarchy_list}\n\nUpdated roles:\n" + "\n".join(updated_roles)
         )]
 
     # Advanced Channel Management
