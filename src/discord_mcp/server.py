@@ -1625,7 +1625,7 @@ async def list_tools() -> List[Tool]:
         ),
         Tool(
             name="set_role_hierarchy",
-            description="Set the role hierarchy by specifying role order (from highest to lowest). Higher positions = higher in hierarchy.",
+            description="Set the role hierarchy by specifying role order (from highest to lowest). Higher positions = higher in hierarchy. You can provide either role IDs or role names.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -1640,12 +1640,19 @@ async def list_tools() -> List[Tool]:
                         },
                         "description": "Array of role IDs in desired order (first = highest, last = lowest). Only include roles you want to reorder."
                     },
+                    "role_names": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "description": "Array of role names in desired order (first = highest, last = lowest). Only include roles you want to reorder. If provided, role_ids will be ignored."
+                    },
                     "reason": {
                         "type": "string",
                         "description": "Reason for hierarchy change"
                     }
                 },
-                "required": ["server_id", "role_ids"]
+                "required": ["server_id"]
             }
         ),
 
@@ -4111,10 +4118,17 @@ async def call_tool(name: str, arguments: Any) -> List[TextContent]:
 
     elif name == "list_roles":
         guild = await discord_client.fetch_guild(int(arguments["server_id"]))
-        roles = [f"{r.name} (ID: {r.id}, Color: {r.color}, Members: {len(r.members)})" for r in guild.roles]
+        # Sort roles by position (highest first) to show hierarchy
+        sorted_roles = sorted([r for r in guild.roles if not r.is_default()], key=lambda r: r.position, reverse=True)
+        roles = []
+        for i, r in enumerate(sorted_roles, 1):
+            role_info = f"{i}. {r.name} (ID: {r.id}, Position: {r.position}, Members: {len(r.members)})"
+            if r.color.value != 0:
+                role_info += f", Color: {r.color}"
+            roles.append(role_info)
         return [TextContent(
             type="text",
-            text=f"Server roles ({len(roles)}):\n" + "\n".join(roles)
+            text=f"Server roles ({len(sorted_roles)} total, excluding @everyone):\n" + "\n".join(roles)
         )]
 
     elif name == "get_role_info":
@@ -4137,48 +4151,131 @@ async def call_tool(name: str, arguments: Any) -> List[TextContent]:
 
     elif name == "set_role_hierarchy":
         guild = await discord_client.fetch_guild(int(arguments["server_id"]))
-        role_ids = [int(rid) for rid in arguments["role_ids"]]
         reason = arguments.get("reason", "Role hierarchy updated via MCP")
         
-        # Get the roles to reorder
-        roles_to_reorder = []
-        for role_id in role_ids:
-            role = guild.get_role(role_id)
-            if not role:
-                raise ValueError(f"Role with ID {role_id} not found")
-            if role.is_default():
-                raise ValueError("Cannot reorder @everyone role")
-            roles_to_reorder.append(role)
+        # Determine if we're using role names or IDs
+        if "role_names" in arguments and arguments["role_names"]:
+            # Look up roles by name (case-insensitive)
+            role_names = arguments["role_names"]
+            roles_to_reorder = []
+            not_found = []
+            
+            for role_name in role_names:
+                # Try exact match first
+                role = discord.utils.get(guild.roles, name=role_name)
+                if not role:
+                    # Try case-insensitive match
+                    for r in guild.roles:
+                        if r.name.lower() == role_name.lower():
+                            role = r
+                            break
+                
+                if not role:
+                    not_found.append(role_name)
+                elif role.is_default():
+                    raise ValueError(f"Cannot reorder @everyone role")
+                else:
+                    roles_to_reorder.append(role)
+            
+            if not_found:
+                raise ValueError(f"Roles not found: {', '.join(not_found)}")
+            
+            role_ids = [r.id for r in roles_to_reorder]
+        elif "role_ids" in arguments and arguments["role_ids"]:
+            # Use role IDs as before
+            role_ids = [int(rid) for rid in arguments["role_ids"]]
+            roles_to_reorder = []
+            for role_id in role_ids:
+                role = guild.get_role(role_id)
+                if not role:
+                    raise ValueError(f"Role with ID {role_id} not found")
+                if role.is_default():
+                    raise ValueError("Cannot reorder @everyone role")
+                roles_to_reorder.append(role)
+        else:
+            raise ValueError("Either 'role_ids' or 'role_names' must be provided")
         
-        # Get all roles sorted by current position (highest first)
+        # Get bot's role to exclude it from reordering (bots can't edit their own role position)
+        bot_member = await guild.fetch_member(discord_client.user.id)
+        bot_role = bot_member.top_role if bot_member else None
+        bot_role_id = bot_role.id if bot_role else None
+        
+        # Filter out bot's own role from roles to reorder
+        original_count = len(roles_to_reorder)
+        roles_to_reorder = [r for r in roles_to_reorder if r.id != bot_role_id]
+        skipped_bot_role = original_count > len(roles_to_reorder)
+        
+        if not roles_to_reorder:
+            return [TextContent(
+                type="text",
+                text="No roles to reorder. Note: The bot's own role cannot be reordered by the bot itself."
+            )]
+        
+        # Refresh guild to get latest role positions
+        await guild.chunk()
+        
+        # Get all roles and their current positions
         all_roles = sorted([r for r in guild.roles if not r.is_default()], key=lambda r: r.position, reverse=True)
         
-        # Find the highest position among roles not being reordered
-        other_roles = [r for r in all_roles if r.id not in role_ids]
-        base_position = max((r.position for r in other_roles), default=0) if other_roles else 0
+        # Get bot's role position - we can only manage roles below this
+        bot_role_position = bot_role.position if bot_role else 999
         
-        # Assign new positions: first role in list = highest, last = lowest
-        # Start from base_position + number of roles to ensure we're above existing roles
+        # Get roles not being reordered and find their max position
+        role_ids_to_reorder = [r.id for r in roles_to_reorder]
+        other_roles = [r for r in all_roles if r.id not in role_ids_to_reorder and r.id != bot_role_id]
+        other_max_position = max((r.position for r in other_roles), default=0) if other_roles else 0
+        
+        # Calculate new positions
+        # First role in list = highest position, last = lowest
+        # Ensure all positions are below bot's role position
+        # The highest position we can assign is bot_role_position - 1
+        # Start from the highest available position
         new_positions = {}
-        start_position = base_position + len(roles_to_reorder) + 1
         
+        # Calculate start position: bot's position - 1, but ensure we have room for all roles
+        # If there are other roles, we need to place our roles above them
+        if other_roles:
+            # Place reordered roles above other roles
+            start_position = min(bot_role_position - 1, other_max_position + len(roles_to_reorder))
+        else:
+            # No other roles, start from bot's position - 1
+            start_position = bot_role_position - 1
+        
+        # Ensure start_position is at least 1
+        start_position = max(1, start_position)
+        
+        # Assign positions: first role gets highest position
         for i, role in enumerate(roles_to_reorder):
             new_positions[role.id] = start_position - i
         
-        # Update roles in reverse order (lowest to highest) to avoid position conflicts
+        # Update roles from lowest to highest position to avoid conflicts
         updated_roles = []
-        for role in reversed(roles_to_reorder):
+        errors = []
+        
+        # Sort by new position (ascending - lowest first)
+        roles_by_new_pos = sorted(roles_to_reorder, key=lambda r: new_positions[r.id])
+        
+        for role in roles_by_new_pos:
             try:
                 await role.edit(position=new_positions[role.id], reason=reason)
                 updated_roles.append(f"{role.name} (position: {new_positions[role.id]})")
+            except discord.Forbidden:
+                errors.append(f"{role.name}: Missing permissions (bot role may be too low)")
+                updated_roles.append(f"{role.name} (error: Missing permissions)")
             except Exception as e:
+                errors.append(f"{role.name}: {str(e)}")
                 updated_roles.append(f"{role.name} (error: {str(e)})")
         
         hierarchy_list = "\n".join(f"{i+1}. {r.name} (ID: {r.id})" for i, r in enumerate(roles_to_reorder))
-        return [TextContent(
-            type="text",
-            text=f"Role hierarchy updated:\n\nNew order (highest to lowest):\n{hierarchy_list}\n\nUpdated roles:\n" + "\n".join(updated_roles)
-        )]
+        result_text = f"Role hierarchy updated:\n\nNew order (highest to lowest):\n{hierarchy_list}\n\nUpdated roles:\n" + "\n".join(updated_roles)
+        
+        if skipped_bot_role and bot_role:
+            result_text += f"\n\nNote: {bot_role.name} (bot's role) was skipped - bots cannot edit their own role position."
+        
+        if errors:
+            result_text += f"\n\nNote: Some roles could not be updated. The bot's role must be higher than roles it manages."
+        
+        return [TextContent(type="text", text=result_text)]
 
     # Advanced Channel Management
     elif name == "list_channels":

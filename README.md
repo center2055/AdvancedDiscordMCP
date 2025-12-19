@@ -38,9 +38,12 @@ A Model Context Protocol (MCP) server that provides Discord integration capabili
 - `create_role`: Create a new role in a server
 - `delete_role`: Delete a role from a server
 - `modify_role`: Modify role properties (name, color, permissions, position, etc.)
-- `list_roles`: List all roles in a server with details
+- `list_roles`: List all roles in a server with details (includes position information)
 - `get_role_info`: Get detailed information about a specific role
 - `set_role_hierarchy`: Set the role hierarchy by specifying role order (from highest to lowest)
+  - Supports both role IDs and role names (case-insensitive)
+  - Automatically handles bot role restrictions
+  - Intelligently calculates positions below the bot's role
 - `add_role`: Add a role to a user
 - `remove_role`: Remove a role from a user
 
@@ -105,7 +108,12 @@ This enhanced fork includes **extensive new features** beyond the original proje
 - **Enhanced `list_channels`**: Now displays channel categories and sorts channels by position
 - **Category Support in `modify_channel`**: Move channels between categories or remove them from categories
 - **`list_servers` Tool**: List all servers the bot is a member of
-- **Role Hierarchy Management**: New `set_role_hierarchy` tool to configure role order and hierarchy
+- **Role Hierarchy Management**: Enhanced `set_role_hierarchy` tool with improved position calculation and automatic bot role handling
+  - Supports both role IDs and role names (case-insensitive matching)
+  - Automatically skips the bot's own role (bots cannot edit their own role position)
+  - Intelligently calculates positions to ensure roles are placed below the bot's role
+  - Handles permission errors gracefully when roles are above the bot's position
+- **Enhanced `list_roles`**: Now displays role positions to help visualize hierarchy
 - **Position Support in `modify_role`**: Set individual role positions to control hierarchy
 
 ### Permission Management
