@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "discord": {
+      "command": "path/to/venv/Scripts/python.exe",
+      "args": ["-m", "discord_mcp"],
+      "cwd": "path/to/mcp-discord-main",
+      "env": {
+        "DISCORD_TOKEN": "your_bot_token_here"
+      }
+    }
+  }
+}
