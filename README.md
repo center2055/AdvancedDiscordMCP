@@ -99,6 +99,12 @@ A Model Context Protocol (MCP) server that provides Discord integration capabili
 
 This enhanced fork includes **extensive new features** beyond the original project:
 
+### Permission Management
+- `check_bot_permissions`: Check what permissions the bot has in a channel or server
+- `check_member_permissions`: Check what permissions a member has in a channel or server
+- `configure_channel_permissions`: Configure permissions for a role or member in a channel
+- `list_discord_permissions`: List all available Discord permissions with descriptions
+
 ### Bulk Operations
 - `bulk_add_roles`: Add a role to multiple users
 - `bulk_modify_members`: Update multiple members (nickname, timeout) in one call
