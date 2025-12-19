@@ -89,5 +89,5 @@ What do you think? Are there specific Discord features you've been wanting that 
 
 ---
 
-*Note: This is an open-source fork maintained by the community. All improvements are available under the same MIT license as the original.*
+*Note: This is an open-source fork maintained by the community. All improvements are available under the GNU General Public License v3.0 (GPLv3).*
 
