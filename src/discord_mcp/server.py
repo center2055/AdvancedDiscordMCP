@@ -1681,6 +1681,10 @@ async def list_tools() -> List[Tool]:
                         "description": "Slowmode delay in seconds (0-21600)",
                         "minimum": 0,
                         "maximum": 21600
+                    },
+                    "category_id": {
+                        "type": "string",
+                        "description": "Category ID to move channel into (or null to remove from category)"
                     }
                 },
                 "required": ["channel_id"]
@@ -4156,6 +4160,14 @@ async def call_tool(name: str, arguments: Any) -> List[TextContent]:
             kwargs["nsfw"] = arguments["nsfw"]
         if "slowmode_delay" in arguments and isinstance(channel, discord.TextChannel):
             kwargs["slowmode_delay"] = arguments["slowmode_delay"]
+        if "category_id" in arguments:
+            if arguments["category_id"]:
+                category = await discord_client.fetch_channel(int(arguments["category_id"]))
+                if not isinstance(category, discord.CategoryChannel):
+                    raise ValueError("category_id must be a category channel")
+                kwargs["category"] = category
+            else:
+                kwargs["category"] = None
         
         await channel.edit(**kwargs)
         return [TextContent(type="text", text=f"Modified channel: {channel.name}")]
