@@ -7,6 +7,7 @@ A Model Context Protocol (MCP) server that provides Discord integration capabili
 ## Features
 
 ### Server Information
+- `list_servers`: List all Discord servers (guilds) the bot is a member of
 - `get_server_info`: Get detailed server information
 - `list_members`: List server members and their roles
 - `get_server_settings`: Retrieve current server configuration
@@ -28,9 +29,9 @@ A Model Context Protocol (MCP) server that provides Discord integration capabili
 ### Channel Management
 - `create_text_channel`: Create a new text channel
 - `create_voice_channel`: Create a new voice channel
-- `list_channels`: List all channels in a server
+- `list_channels`: List all channels in a server (shows categories and sorts channels)
 - `get_channel_info`: Get detailed information about a channel
-- `modify_channel`: Modify channel properties (name, topic, permissions, etc.)
+- `modify_channel`: Modify channel properties (name, topic, permissions, category, etc.)
 - `delete_channel`: Delete an existing channel
 
 ### Role Management
@@ -98,6 +99,11 @@ A Model Context Protocol (MCP) server that provides Discord integration capabili
 ## 🆕 New Features in This Fork
 
 This enhanced fork includes **extensive new features** beyond the original project:
+
+### Recent Improvements
+- **Enhanced `list_channels`**: Now displays channel categories and sorts channels by position
+- **Category Support in `modify_channel`**: Move channels between categories or remove them from categories
+- **`list_servers` Tool**: List all servers the bot is a member of
 
 ### Permission Management
 - `check_bot_permissions`: Check what permissions the bot has in a channel or server
