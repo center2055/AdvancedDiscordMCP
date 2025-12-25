@@ -91,7 +91,15 @@ async def on_member_join(member: discord.Member):
                     content = content.replace("{user}", member.mention)
                     content = content.replace("{username}", member.name)
                     content = content.replace("{server}", member.guild.name)
-                    await channel.send(content)
+                    
+                    # Send as embed
+                    embed = discord.Embed(
+                        title="Welcome!",
+                        description=content,
+                        color=0x5865F2  # Discord blurple
+                    )
+                    embed.set_thumbnail(url=member.display_avatar.url if member.display_avatar else None)
+                    await channel.send(embed=embed)
                     logger.info(f"Executed automation rule {rule_id}: sent welcome message")
             
             elif action_type == "assign_role":
@@ -173,7 +181,15 @@ async def on_reaction_add(reaction: discord.Reaction, user: discord.User):
                     content = content.replace("{user}", member.mention)
                     content = content.replace("{username}", member.name)
                     content = content.replace("{emoji}", emoji_str)
-                    await channel.send(content)
+                    
+                    # Send as embed
+                    embed = discord.Embed(
+                        title="Reaction Event",
+                        description=content,
+                        color=0x5865F2  # Discord blurple
+                    )
+                    embed.set_footer(text=f"Reaction: {emoji_str}")
+                    await channel.send(embed=embed)
                     logger.info(f"Executed automation rule {rule_id}: sent message")
             
             elif action_type == "log":
@@ -247,6 +263,62 @@ async def on_reaction_remove(reaction: discord.Reaction, user: discord.User):
         
         except Exception as exc:
             logger.error(f"Error executing automation rule {rule_id} on reaction remove: {exc}")
+
+@bot.event
+async def on_message_delete(message: discord.Message):
+    """Handle message deletion events and log to staff logs."""
+    if not discord_client:
+        return
+    
+    # Ignore DMs
+    if not isinstance(message.channel, (discord.TextChannel, discord.Thread)):
+        return
+    
+    # Log to staff logs channel (if it exists)
+    try:
+        guild = message.guild
+        if not guild:
+            return
+        
+        staff_logs_channel = None
+        for ch in guild.channels:
+            if isinstance(ch, discord.TextChannel) and "staff" in ch.name.lower() and "log" in ch.name.lower():
+                staff_logs_channel = ch
+                break
+        
+        if staff_logs_channel:
+            message_content = message.content[:500] if message.content else "(No content/embed only)"
+            message_author = message.author.mention if message.author else "Unknown"
+            message_author_name = message.author.name if message.author else "Unknown"
+            
+            log_embed = discord.Embed(
+                title="🗑️ Message Deleted",
+                color=0xe74c3c,
+                timestamp=discord.utils.utcnow()
+            )
+            log_embed.add_field(name="Channel", value=f"#{message.channel.name}", inline=True)
+            log_embed.add_field(name="Author", value=f"{message_author} ({message_author_name})", inline=True)
+            log_embed.add_field(name="Message ID", value=f"`{message.id}`", inline=True)
+            
+            if message_content and message_content != "(No content/embed only)":
+                log_embed.add_field(
+                    name="Content", 
+                    value=message_content if len(message_content) <= 1024 else message_content[:1021] + "...", 
+                    inline=False
+                )
+            
+            # Try to get jump URL (may not work for deleted messages, but worth trying)
+            try:
+                jump_url = message.jump_url
+                log_embed.add_field(name="Message Link", value=f"[Jump to Message]({jump_url})", inline=False)
+            except:
+                pass
+            
+            log_embed.set_footer(text="Deleted via Discord UI or bot command")
+            await staff_logs_channel.send(embed=log_embed)
+            logger.info(f"Logged message deletion to staff logs: {message.id} in {message.channel.name}")
+    except Exception as e:
+        logger.warning(f"Failed to log message deletion to staff logs: {e}")
 
 # Helper function to ensure Discord client is ready
 def require_discord_client(func):
@@ -1375,6 +1447,18 @@ async def list_tools() -> List[Tool]:
                     "content": {
                         "type": "string",
                         "description": "Message content"
+                    },
+                    "use_embed": {
+                        "type": "boolean",
+                        "description": "Send message as embed (default: false)"
+                    },
+                    "embed_title": {
+                        "type": "string",
+                        "description": "Embed title (required if use_embed is true)"
+                    },
+                    "embed_color": {
+                        "type": "string",
+                        "description": "Embed color in hex format (e.g., 0x5865F2)"
                     }
                 },
                 "required": ["channel_id", "content"]
@@ -1861,6 +1945,10 @@ async def list_tools() -> List[Tool]:
                     "category_id": {
                         "type": "string",
                         "description": "Category ID to move channel into (or null to remove from category)"
+                    },
+                    "position": {
+                        "type": "number",
+                        "description": "Channel position (0 = top, higher numbers = lower)"
                     }
                 },
                 "required": ["channel_id"]
@@ -2712,7 +2800,26 @@ async def call_tool(name: str, arguments: Any) -> List[TextContent]:
 
     if name == "send_message":
         channel = await discord_client.fetch_channel(int(arguments["channel_id"]))
-        message = await channel.send(arguments["content"])
+        use_embed = arguments.get("use_embed", True)  # Default to True for embeds
+        
+        if use_embed:
+            embed_title = arguments.get("embed_title", "Message")
+            embed_color = arguments.get("embed_color", "0x5865F2")
+            # Parse color
+            try:
+                color_int = int(embed_color, 16) if embed_color.startswith("0x") else int(embed_color)
+            except ValueError:
+                color_int = 0x5865F2  # Default Discord blurple
+            
+            embed = discord.Embed(
+                title=embed_title,
+                description=arguments["content"],
+                color=color_int
+            )
+            message = await channel.send(embed=embed)
+        else:
+            message = await channel.send(arguments["content"])
+        
         return [TextContent(
             type="text",
             text=f"Message sent successfully. Message ID: {message.id}"
@@ -2771,9 +2878,42 @@ async def call_tool(name: str, arguments: Any) -> List[TextContent]:
     elif name == "moderate_message":
         channel = await discord_client.fetch_channel(int(arguments["channel_id"]))
         message = await channel.fetch_message(int(arguments["message_id"]))
+        reason = arguments.get("reason", "No reason provided")
         
-        # Delete the message
-        await message.delete(reason=arguments["reason"])
+        # Store message info before deletion
+        message_author = message.author
+        message_content = message.content[:500] if message.content else "(No content)"
+        message_channel = channel.name
+        message_url = message.jump_url
+        
+        # Delete the message (reason is logged but not passed to delete())
+        await message.delete()
+        
+        # Log to staff logs channel (if it exists)
+        try:
+            # Try to find staff logs channel by name
+            guild = message.guild
+            staff_logs_channel = None
+            for ch in guild.channels:
+                if isinstance(ch, discord.TextChannel) and "staff" in ch.name.lower() and "log" in ch.name.lower():
+                    staff_logs_channel = ch
+                    break
+            
+            if staff_logs_channel:
+                log_embed = discord.Embed(
+                    title="🗑️ Message Deleted",
+                    color=0xe74c3c,
+                    timestamp=discord.utils.utcnow()
+                )
+                log_embed.add_field(name="Channel", value=f"#{message_channel}", inline=True)
+                log_embed.add_field(name="Author", value=f"{message_author.mention} ({message_author.name})", inline=True)
+                log_embed.add_field(name="Message ID", value=f"`{message.id}`", inline=True)
+                log_embed.add_field(name="Content", value=message_content if len(message_content) <= 1024 else message_content[:1021] + "...", inline=False)
+                log_embed.add_field(name="Reason", value=reason, inline=False)
+                log_embed.add_field(name="Message Link", value=f"[Jump to Message]({message_url})", inline=False)
+                await staff_logs_channel.send(embed=log_embed)
+        except Exception as e:
+            logger.warning(f"Failed to log to staff logs: {e}")
         
         # Handle timeout if specified
         if "timeout_minutes" in arguments and arguments["timeout_minutes"] > 0:
@@ -2783,7 +2923,7 @@ async def call_tool(name: str, arguments: Any) -> List[TextContent]:
                 )
                 await message.author.timeout(
                     duration,
-                    reason=arguments["reason"]
+                    reason=reason
                 )
                 return [TextContent(
                     type="text",
@@ -4505,6 +4645,9 @@ async def call_tool(name: str, arguments: Any) -> List[TextContent]:
                 kwargs["category"] = category
             else:
                 kwargs["category"] = None
+        
+        if "position" in arguments:
+            kwargs["position"] = int(arguments["position"])
         
         await channel.edit(**kwargs)
         return [TextContent(type="text", text=f"Modified channel: {channel.name}")]

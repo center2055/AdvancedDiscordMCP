@@ -1,0 +1,63 @@
+name: Send Changelog to Discord
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version number (e.g., 1.2.3)'
+        required: true
+      changelog:
+        description: 'Changelog content'
+        required: true
+
+jobs:
+  send-changelog:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      
+      - name: Install dependencies
+        run: pip install requests
+      
+      - name: Get version from release
+        if: github.event_name == 'release'
+        id: release
+        run: |
+          echo "version=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          echo "${{ github.event.release.body }}" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+      
+      - name: Send changelog to Discord
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          if [ "${{ github.event_name }}" == "release" ]; then
+            VERSION="${{ steps.release.outputs.version }}"
+            CHANGELOG="${{ steps.release.outputs.changelog }}"
+          else
+            VERSION="${{ github.event.inputs.version }}"
+            CHANGELOG="${{ github.event.inputs.changelog }}"
+          fi
+          
+          python send_changelog.py \
+            --version "$VERSION" \
+            --changelog "$CHANGELOG" \
+            --project-name "${{ github.repository }}" \
+            --author-name "${{ github.event.release.author.login || github.actor }}" \
+            --author-url "https://github.com/${{ github.repository }}" \
+            --footer "GitHub Release" \
+            --color 0x5865F2
+
+
+
+
+
