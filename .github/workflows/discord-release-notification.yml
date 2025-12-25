@@ -18,53 +18,49 @@ jobs:
           REPO_NAME="${{ github.repository }}"
           RELEASE_URL="${{ github.event.release.html_url }}"
           AUTHOR="${{ github.event.release.author.login }}"
+          TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           
-          # Format the changelog (limit to 2000 chars for Discord embed)
+          # Truncate changelog if too long (Discord embed limit is 2000 chars)
           if [ ${#CHANGELOG} -gt 2000 ]; then
             CHANGELOG="${CHANGELOG:0:1997}..."
           fi
           
-          # Create embed payload
-          PAYLOAD=$(cat <<EOF
-          {
-            "embeds": [{
-              "title": "🚀 New Release: $RELEASE_NAME",
-              "description": "$CHANGELOG",
-              "url": "$RELEASE_URL",
-              "color": 5865,
-              "fields": [
-                {
-                  "name": "Version",
-                  "value": "$VERSION",
-                  "inline": true
+          # Escape JSON special characters
+          CHANGELOG_ESCAPED=$(echo "$CHANGELOG" | sed 's/\\/\\\\/g' | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
+          RELEASE_NAME_ESCAPED=$(echo "$RELEASE_NAME" | sed 's/\\/\\\\/g' | sed 's/"/\\"/g')
+          
+          # Create and send JSON payload using jq for proper JSON handling
+          curl -X POST "$DISCORD_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"embeds\": [{
+                \"title\": \"🚀 New Release: $RELEASE_NAME_ESCAPED\",
+                \"description\": \"$CHANGELOG_ESCAPED\",
+                \"url\": \"$RELEASE_URL\",
+                \"color\": 5865,
+                \"fields\": [
+                  {
+                    \"name\": \"Version\",
+                    \"value\": \"$VERSION\",
+                    \"inline\": true
+                  },
+                  {
+                    \"name\": \"Repository\",
+                    \"value\": \"[$REPO_NAME](https://github.com/$REPO_NAME)\",
+                    \"inline\": true
+                  }
+                ],
+                \"author\": {
+                  \"name\": \"$AUTHOR\",
+                  \"url\": \"https://github.com/$AUTHOR\",
+                  \"icon_url\": \"https://github.com/$AUTHOR.png\"
                 },
-                {
-                  "name": "Repository",
-                  "value": "[$REPO_NAME](https://github.com/$REPO_NAME)",
-                  "inline": true
-                }
-              ],
-              "author": {
-                "name": "$AUTHOR",
-                "url": "https://github.com/$AUTHOR",
-                "icon_url": "https://github.com/$AUTHOR.png"
-              },
-              "footer": {
-                "text": "GitHub Release",
-                "icon_url": "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
-              },
-              "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            }]
-          }
-          EOF
-          )
-          
-          # Escape newlines and quotes for JSON
-          PAYLOAD=$(echo "$PAYLOAD" | sed 's/\\/\\\\/g' | sed 's/"/\\"/g' | tr -d '\n')
-          
-          # Send to Discord
-          curl -H "Content-Type: application/json" \
-               -d "$PAYLOAD" \
-               "$DISCORD_WEBHOOK_URL"
+                \"footer\": {
+                  \"text\": \"GitHub Release\",
+                  \"icon_url\": \"https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png\"
+                },
+                \"timestamp\": \"$TIMESTAMP\"
+              }]
+            }"
 
 
