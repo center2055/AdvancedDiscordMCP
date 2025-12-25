@@ -9,6 +9,15 @@ jobs:
   notify-discord:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup GitHub CLI
+        uses: cli/cli-action@v1
+        with:
+          version: latest
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
       - name: Send release notification to Discord
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
@@ -18,15 +27,15 @@ jobs:
             VERSION="${{ github.event.release.tag_name }}"
             RELEASE_NAME="${{ github.event.release.name }}"
             CHANGELOG="${{ github.event.release.body }}"
-            RELEASE_URL="${{ github.event.release.html_url }}"
+            RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/${{ github.event.release.tag_name }}"
             AUTHOR="${{ github.event.release.author.login }}"
           else
             # Fallback for manual trigger - use latest release
-            LATEST_RELEASE=$(gh release view --repo ${{ github.repository }} --json tagName,name,body,htmlUrl,author.login)
+            LATEST_RELEASE=$(gh release view --repo ${{ github.repository }} --json tagName,name,body,author)
             VERSION=$(echo "$LATEST_RELEASE" | jq -r '.tagName')
             RELEASE_NAME=$(echo "$LATEST_RELEASE" | jq -r '.name')
             CHANGELOG=$(echo "$LATEST_RELEASE" | jq -r '.body')
-            RELEASE_URL=$(echo "$LATEST_RELEASE" | jq -r '.htmlUrl')
+            RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/$VERSION"
             AUTHOR=$(echo "$LATEST_RELEASE" | jq -r '.author.login')
           fi
           REPO_NAME="${{ github.repository }}"
