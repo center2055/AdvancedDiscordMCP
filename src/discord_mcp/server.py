@@ -108,6 +108,146 @@ async def on_member_join(member: discord.Member):
         except Exception as exc:
             logger.error(f"Error executing automation rule {rule_id}: {exc}")
 
+@bot.event
+async def on_reaction_add(reaction: discord.Reaction, user: discord.User):
+    """Handle reaction add events and execute automation rules for reaction roles."""
+    if not discord_client:
+        return
+    
+    # Ignore bot reactions
+    if user.bot:
+        return
+    
+    # Get member from guild
+    if not isinstance(reaction.message.channel, discord.TextChannel):
+        return
+    
+    try:
+        member = await reaction.message.guild.fetch_member(user.id)
+    except:
+        return
+    
+    # Get emoji string (handle both Unicode and custom emojis)
+    emoji_str = str(reaction.emoji)
+    
+    # Check for enabled automation rules with reaction_added trigger
+    for rule_id, rule in automation_rules.items():
+        if not rule.get("enabled", True):
+            continue
+        
+        if rule.get("trigger_type") != "reaction_added":
+            continue
+        
+        # Check if rule applies to this server
+        server_id = rule.get("server_id")
+        if server_id and str(reaction.message.guild.id) != str(server_id):
+            continue
+        
+        # Check if emoji matches trigger_value
+        trigger_value = rule.get("trigger_value", "")
+        if trigger_value and emoji_str != trigger_value:
+            continue
+        
+        # Check if message matches (optional message_id in action_payload)
+        action_payload = rule.get("action_payload", {})
+        message_id = action_payload.get("message_id")
+        if message_id and str(reaction.message.id) != str(message_id):
+            continue
+        
+        try:
+            action_type = rule.get("action_type")
+            
+            if action_type == "assign_role":
+                role_id = action_payload.get("role_id")
+                if role_id:
+                    role = reaction.message.guild.get_role(int(role_id))
+                    if role and role not in member.roles:
+                        await member.add_roles(role, reason=f"Reaction role: {rule.get('name', rule_id)}")
+                        logger.info(f"Executed automation rule {rule_id}: assigned role {role.name} to {member.name}")
+            
+            elif action_type == "send_message":
+                channel_id = action_payload.get("channel_id")
+                if channel_id:
+                    channel = await discord_client.fetch_channel(int(channel_id))
+                    content = action_payload.get("content", "Reaction received!")
+                    content = content.replace("{user}", member.mention)
+                    content = content.replace("{username}", member.name)
+                    content = content.replace("{emoji}", emoji_str)
+                    await channel.send(content)
+                    logger.info(f"Executed automation rule {rule_id}: sent message")
+            
+            elif action_type == "log":
+                logger.info(f"Automation rule {rule_id} triggered for reaction {emoji_str} by {member.name} (ID: {member.id})")
+        
+        except Exception as exc:
+            logger.error(f"Error executing automation rule {rule_id}: {exc}")
+
+@bot.event
+async def on_reaction_remove(reaction: discord.Reaction, user: discord.User):
+    """Handle reaction remove events and execute automation rules (e.g., remove roles)."""
+    if not discord_client:
+        return
+    
+    # Ignore bot reactions
+    if user.bot:
+        return
+    
+    # Get member from guild
+    if not isinstance(reaction.message.channel, discord.TextChannel):
+        return
+    
+    try:
+        member = await reaction.message.guild.fetch_member(user.id)
+    except:
+        return
+    
+    # Get emoji string (handle both Unicode and custom emojis)
+    emoji_str = str(reaction.emoji)
+    
+    # Check for enabled automation rules with reaction_added trigger
+    # Note: We use the same trigger_type but check action_payload for remove_on_unreact
+    for rule_id, rule in automation_rules.items():
+        if not rule.get("enabled", True):
+            continue
+        
+        if rule.get("trigger_type") != "reaction_added":
+            continue
+        
+        # Check if rule applies to this server
+        server_id = rule.get("server_id")
+        if server_id and str(reaction.message.guild.id) != str(server_id):
+            continue
+        
+        # Check if emoji matches trigger_value
+        trigger_value = rule.get("trigger_value", "")
+        if trigger_value and emoji_str != trigger_value:
+            continue
+        
+        # Check if message matches (optional message_id in action_payload)
+        action_payload = rule.get("action_payload", {})
+        message_id = action_payload.get("message_id")
+        if message_id and str(reaction.message.id) != str(message_id):
+            continue
+        
+        # Check if we should remove role on unreact (default: true for reaction roles)
+        remove_on_unreact = action_payload.get("remove_on_unreact", True)
+        if not remove_on_unreact:
+            continue
+        
+        try:
+            action_type = rule.get("action_type")
+            
+            if action_type == "assign_role":
+                role_id = action_payload.get("role_id")
+                if role_id:
+                    role = reaction.message.guild.get_role(int(role_id))
+                    if role and role in member.roles:
+                        await member.remove_roles(role, reason=f"Reaction role removed: {rule.get('name', rule_id)}")
+                        logger.info(f"Executed automation rule {rule_id}: removed role {role.name} from {member.name}")
+        
+        except Exception as exc:
+            logger.error(f"Error executing automation rule {rule_id} on reaction remove: {exc}")
+
 # Helper function to ensure Discord client is ready
 def require_discord_client(func):
     @wraps(func)
@@ -4279,11 +4419,34 @@ async def call_tool(name: str, arguments: Any) -> List[TextContent]:
 
     # Advanced Channel Management
     elif name == "list_channels":
-        guild = await discord_client.fetch_guild(int(arguments["server_id"]))
+        server_id = int(arguments["server_id"])
         channel_type = arguments.get("channel_type", "all")
         
+        # Use cached guild object which has channels in cache
+        guild = discord_client.get_guild(server_id)
+        if not guild:
+            # Fallback to fetching if not in cache
+            guild = await discord_client.fetch_guild(server_id)
+        
         channels = []
-        for channel in sorted(guild.channels, key=lambda c: (c.position if hasattr(c, 'position') else 0, c.name)):
+        # guild.channels is a cached property that should work if bot has proper intents
+        all_channels = list(guild.channels)
+        
+        # If still no channels, try to get them from the guild's channel cache
+        if not all_channels:
+            # Try accessing channels through different methods
+            try:
+                # Get all text channels
+                text_channels = [ch for ch in guild.text_channels] if hasattr(guild, 'text_channels') else []
+                # Get all voice channels
+                voice_channels = [ch for ch in guild.voice_channels] if hasattr(guild, 'voice_channels') else []
+                # Get all categories
+                categories = [ch for ch in guild.categories] if hasattr(guild, 'categories') else []
+                all_channels = text_channels + voice_channels + categories
+            except Exception as e:
+                logger.warning(f"Could not get channels: {e}")
+        
+        for channel in sorted(all_channels, key=lambda c: (c.position if hasattr(c, 'position') else 0, c.name)):
             channel_info = f"{channel.name} (ID: {channel.id})"
             if hasattr(channel, 'category') and channel.category:
                 channel_info += f" [Category: {channel.category.name}]"
