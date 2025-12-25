@@ -22,6 +22,7 @@ jobs:
       - name: Send release notification to Discord
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           # Handle both release event and manual trigger
           if [ -n "${{ github.event.release.tag_name }}" ]; then
