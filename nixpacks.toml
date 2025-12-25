@@ -1,11 +1,5 @@
-[phases.setup]
-nixPkgs = ["python312", "pip"]
-
 [phases.install]
-cmds = ["pip install discord.py>=2.3.0", "pip install mcp>=0.1.0"]
-
-[phases.build]
-cmds = ["echo 'Build complete'"]
+cmds = ["pip install -r requirements.txt"]
 
 [start]
 cmd = "python railway_bot.py"
