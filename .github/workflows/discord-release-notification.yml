@@ -1,0 +1,70 @@
+name: Discord Release Notification
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  notify-discord:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send release notification to Discord
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          VERSION="${{ github.event.release.tag_name }}"
+          RELEASE_NAME="${{ github.event.release.name }}"
+          CHANGELOG="${{ github.event.release.body }}"
+          REPO_NAME="${{ github.repository }}"
+          RELEASE_URL="${{ github.event.release.html_url }}"
+          AUTHOR="${{ github.event.release.author.login }}"
+          
+          # Format the changelog (limit to 2000 chars for Discord embed)
+          if [ ${#CHANGELOG} -gt 2000 ]; then
+            CHANGELOG="${CHANGELOG:0:1997}..."
+          fi
+          
+          # Create embed payload
+          PAYLOAD=$(cat <<EOF
+          {
+            "embeds": [{
+              "title": "🚀 New Release: $RELEASE_NAME",
+              "description": "$CHANGELOG",
+              "url": "$RELEASE_URL",
+              "color": 5865,
+              "fields": [
+                {
+                  "name": "Version",
+                  "value": "$VERSION",
+                  "inline": true
+                },
+                {
+                  "name": "Repository",
+                  "value": "[$REPO_NAME](https://github.com/$REPO_NAME)",
+                  "inline": true
+                }
+              ],
+              "author": {
+                "name": "$AUTHOR",
+                "url": "https://github.com/$AUTHOR",
+                "icon_url": "https://github.com/$AUTHOR.png"
+              },
+              "footer": {
+                "text": "GitHub Release",
+                "icon_url": "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
+              },
+              "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            }]
+          }
+          EOF
+          )
+          
+          # Escape newlines and quotes for JSON
+          PAYLOAD=$(echo "$PAYLOAD" | sed 's/\\/\\\\/g' | sed 's/"/\\"/g' | tr -d '\n')
+          
+          # Send to Discord
+          curl -H "Content-Type: application/json" \
+               -d "$PAYLOAD" \
+               "$DISCORD_WEBHOOK_URL"
+
+
