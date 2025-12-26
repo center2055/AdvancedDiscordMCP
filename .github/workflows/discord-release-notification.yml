@@ -29,18 +29,31 @@ jobs:
             else
               RELEASE_TAG=$(gh release list --limit 1 --json tagName -q '.[0].tagName')
             fi
-            RELEASE_DATA=$(gh release view "$RELEASE_TAG" --json tagName,name,body,url,publishedAt,author)
           else
             RELEASE_TAG="${{ github.event.release.tag_name }}"
-            RELEASE_DATA=$(gh release view "$RELEASE_TAG" --json tagName,name,body,url,publishedAt,author)
           fi
           
-          echo "tag_name=$(echo "$RELEASE_DATA" | jq -r '.tagName')" >> $GITHUB_OUTPUT
-          echo "name=$(echo "$RELEASE_DATA" | jq -r '.name')" >> $GITHUB_OUTPUT
-          echo "body=$(echo "$RELEASE_DATA" | jq -r '.body // ""')" >> $GITHUB_OUTPUT
-          echo "url=$(echo "$RELEASE_DATA" | jq -r '.url')" >> $GITHUB_OUTPUT
-          echo "published_at=$(echo "$RELEASE_DATA" | jq -r '.publishedAt')" >> $GITHUB_OUTPUT
-          echo "author=$(echo "$RELEASE_DATA" | jq -r '.author.login')" >> $GITHUB_OUTPUT
+          RELEASE_DATA=$(gh release view "$RELEASE_TAG" --json tagName,name,body,url,publishedAt,author)
+          
+          TAG_NAME=$(echo "$RELEASE_DATA" | jq -r '.tagName')
+          NAME=$(echo "$RELEASE_DATA" | jq -r '.name')
+          BODY=$(echo "$RELEASE_DATA" | jq -r '.body // ""')
+          URL=$(echo "$RELEASE_DATA" | jq -r '.url')
+          PUBLISHED_AT=$(echo "$RELEASE_DATA" | jq -r '.publishedAt')
+          AUTHOR=$(echo "$RELEASE_DATA" | jq -r '.author.login')
+          
+          {
+            echo "tag_name=$TAG_NAME"
+            echo "name<<EOF"
+            echo "$NAME"
+            echo "EOF"
+            echo "body<<EOF"
+            echo "$BODY"
+            echo "EOF"
+            echo "url=$URL"
+            echo "published_at=$PUBLISHED_AT"
+            echo "author=$AUTHOR"
+          } >> $GITHUB_OUTPUT
         env:
           GH_TOKEN: ${{ github.token }}
 
