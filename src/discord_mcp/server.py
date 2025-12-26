@@ -85,21 +85,145 @@ async def on_member_join(member: discord.Member):
             if action_type == "send_message":
                 channel_id = action_payload.get("channel_id")
                 if channel_id:
-                    channel = await discord_client.fetch_channel(int(channel_id))
+                    # Ensure channel_id is converted to int for fetching, but keep string version for mentions
+                    channel_id_int = int(channel_id) if isinstance(channel_id, str) else channel_id
+                    channel = await discord_client.fetch_channel(channel_id_int)
                     content = action_payload.get("content", "Welcome to the server!")
+                    
+                    # Get welcome channel ID - first check if it's specified in action_payload
+                    welcome_channel_id = action_payload.get("welcome_channel_id")
+                    # If not specified, try to find a channel with "welcome" in the name (case-insensitive, ignoring emojis)
+                    if not welcome_channel_id:
+                        for ch in member.guild.channels:
+                            if isinstance(ch, discord.TextChannel):
+                                # Remove emojis and special chars for comparison
+                                clean_name = re.sub(r'[^\w\s]', '', ch.name.lower())
+                                if "welcome" in clean_name:
+                                    welcome_channel_id = str(ch.id)
+                                    break
+                    
+                    # If still not found, use the channel where message is being sent
+                    if not welcome_channel_id:
+                        welcome_channel_id = str(channel_id)
+                    
+                    # Ensure welcome_channel_id is a string (Discord mentions require string IDs)
+                    welcome_channel_id = str(welcome_channel_id)
+                    
+                    # Build a mapping of channel names to IDs for quick lookup
+                    channel_map = {}
+                    for ch in member.guild.channels:
+                        if isinstance(ch, discord.TextChannel):
+                            # Store both full name and cleaned name
+                            clean_name = re.sub(r'[^\w\s]', '', ch.name.lower())
+                            channel_map[clean_name] = str(ch.id)
+                            channel_map[ch.name.lower()] = str(ch.id)
+                            # Also map common variations
+                            if "rules" in clean_name:
+                                channel_map["rules"] = str(ch.id)
+                            if "general" in clean_name:
+                                channel_map["general"] = str(ch.id)
+                            if "showcase" in clean_name or "community" in clean_name:
+                                channel_map["showcase"] = str(ch.id)
+                            if "suggestions" in clean_name:
+                                channel_map["suggestions"] = str(ch.id)
+                    
                     # Replace placeholders
                     content = content.replace("{user}", member.mention)
                     content = content.replace("{username}", member.name)
                     content = content.replace("{server}", member.guild.name)
+                    # Replace {welcome_channel} with proper channel mention
+                    content = content.replace("{welcome_channel}", f"<#{welcome_channel_id}>")
+                    # Replace {channel:channelname} format
+                    def replace_channel_name(match):
+                        channel_name = match.group(1).lower().strip()
+                        clean_channel_name = re.sub(r'[^\w\s]', '', channel_name)
+                        # Try exact match first
+                        if channel_name in channel_map:
+                            return f"<#{channel_map[channel_name]}>"
+                        if clean_channel_name in channel_map:
+                            return f"<#{channel_map[clean_channel_name]}>"
+                        # Try partial match
+                        for name, ch_id in channel_map.items():
+                            if channel_name in name or name in channel_name:
+                                return f"<#{ch_id}>"
+                        return match.group(0)  # Return original if not found
                     
-                    # Send as embed
-                    embed = discord.Embed(
-                        title="Welcome!",
-                        description=content,
-                        color=0x5865F2  # Discord blurple
-                    )
-                    embed.set_thumbnail(url=member.display_avatar.url if member.display_avatar else None)
-                    await channel.send(embed=embed)
+                    channel_name_pattern = r"\{channel:([^}]+)\}"
+                    content = re.sub(channel_name_pattern, replace_channel_name, content)
+                    # Also handle any other channel placeholders that might be in the format {channel:channel_id}
+                    channel_pattern = r"\{channel:(\d+)\}"
+                    content = re.sub(channel_pattern, r"<#\1>", content)
+                    
+                    # Fix broken channel mentions (#unknown) by finding and replacing them
+                    # Look for patterns like "#unknown" or broken mentions and try to fix them based on context
+                    def fix_broken_mention(match):
+                        context = match.group(0).lower()
+                        # Try to infer which channel based on context
+                        if "rules" in context or "read" in context:
+                            if "rules" in channel_map:
+                                return f"<#{channel_map['rules']}>"
+                        elif "chat" in context or "general" in context:
+                            if "general" in channel_map:
+                                return f"<#{channel_map['general']}>"
+                        elif "showcase" in context or "community" in context or "creations" in context:
+                            if "showcase" in channel_map:
+                                return f"<#{channel_map['showcase']}>"
+                        elif "suggestions" in context or "share" in context:
+                            if "suggestions" in channel_map:
+                                return f"<#{channel_map['suggestions']}>"
+                        return match.group(0)  # Return original if can't fix
+                    
+                    # Replace #unknown with proper channel mentions based on context
+                    broken_mention_pattern = r"#unknown|#\?\?\?"
+                    # We'll do a more targeted replacement
+                    if "#unknown" in content:
+                        # Try to replace based on surrounding text
+                        content = re.sub(r"#unknown", lambda m: fix_broken_mention(m), content, count=10)
+                    
+                    # Replace channel name placeholders like {channel:rules}, {channel:general}, etc.
+                    def replace_channel_name(match):
+                        channel_name = match.group(1).lower()
+                        # Try to find channel by name (case-insensitive, ignoring emojis and special chars)
+                        for ch in member.guild.channels:
+                            if isinstance(ch, discord.TextChannel):
+                                clean_name = re.sub(r'[^\w\s]', '', ch.name.lower())
+                                if channel_name in clean_name or clean_name in channel_name:
+                                    return f"<#{ch.id}>"
+                        # If not found, return the original placeholder
+                        return match.group(0)
+                    
+                    # Replace {channel:channelname} format
+                    channel_name_pattern = r"\{channel:([^}]+)\}"
+                    content = re.sub(channel_name_pattern, replace_channel_name, content)
+                    
+                    # Also replace any #channel-name patterns that might be broken
+                    # This handles cases where the message has #channel-name but the channel ID is wrong
+                    broken_channel_pattern = r"#unknown|#\?\?\?"
+                    # We'll leave this for now as it requires knowing which channels should be linked
+                    
+                    # Check if we should use embed (default to True for welcome messages)
+                    use_embed = action_payload.get("use_embed", True)
+                    
+                    if use_embed:
+                        embed_title = action_payload.get("embed_title", "Welcome!")
+                        embed_color = action_payload.get("embed_color", "#3498db")
+                        # Replace placeholders in title (use same channel_map)
+                        embed_title = embed_title.replace("{user}", member.display_name)
+                        embed_title = embed_title.replace("{username}", member.name)
+                        embed_title = embed_title.replace("{server}", member.guild.name)
+                        embed_title = embed_title.replace("{welcome_channel}", f"<#{welcome_channel_id}>")
+                        # Replace {channel:channelname} in title
+                        embed_title = re.sub(channel_name_pattern, replace_channel_name, embed_title)
+                        embed_title = re.sub(channel_pattern, r"<#\1>", embed_title)
+                        
+                        embed = discord.Embed(
+                            title=embed_title,
+                            description=content,
+                            color=int(embed_color.replace("#", ""), 16) if embed_color else None
+                        )
+                        await channel.send(embed=embed)
+                    else:
+                        await channel.send(content)
                     logger.info(f"Executed automation rule {rule_id}: sent welcome message")
             
             elif action_type == "assign_role":
@@ -115,210 +239,6 @@ async def on_member_join(member: discord.Member):
         
         except Exception as exc:
             logger.error(f"Error executing automation rule {rule_id}: {exc}")
-
-@bot.event
-async def on_reaction_add(reaction: discord.Reaction, user: discord.User):
-    """Handle reaction add events and execute automation rules for reaction roles."""
-    if not discord_client:
-        return
-    
-    # Ignore bot reactions
-    if user.bot:
-        return
-    
-    # Get member from guild
-    if not isinstance(reaction.message.channel, discord.TextChannel):
-        return
-    
-    try:
-        member = await reaction.message.guild.fetch_member(user.id)
-    except:
-        return
-    
-    # Get emoji string (handle both Unicode and custom emojis)
-    emoji_str = str(reaction.emoji)
-    
-    # Check for enabled automation rules with reaction_added trigger
-    for rule_id, rule in automation_rules.items():
-        if not rule.get("enabled", True):
-            continue
-        
-        if rule.get("trigger_type") != "reaction_added":
-            continue
-        
-        # Check if rule applies to this server
-        server_id = rule.get("server_id")
-        if server_id and str(reaction.message.guild.id) != str(server_id):
-            continue
-        
-        # Check if emoji matches trigger_value
-        trigger_value = rule.get("trigger_value", "")
-        if trigger_value and emoji_str != trigger_value:
-            continue
-        
-        # Check if message matches (optional message_id in action_payload)
-        action_payload = rule.get("action_payload", {})
-        message_id = action_payload.get("message_id")
-        if message_id and str(reaction.message.id) != str(message_id):
-            continue
-        
-        try:
-            action_type = rule.get("action_type")
-            
-            if action_type == "assign_role":
-                role_id = action_payload.get("role_id")
-                if role_id:
-                    role = reaction.message.guild.get_role(int(role_id))
-                    if role and role not in member.roles:
-                        await member.add_roles(role, reason=f"Reaction role: {rule.get('name', rule_id)}")
-                        logger.info(f"Executed automation rule {rule_id}: assigned role {role.name} to {member.name}")
-            
-            elif action_type == "send_message":
-                channel_id = action_payload.get("channel_id")
-                if channel_id:
-                    channel = await discord_client.fetch_channel(int(channel_id))
-                    content = action_payload.get("content", "Reaction received!")
-                    content = content.replace("{user}", member.mention)
-                    content = content.replace("{username}", member.name)
-                    content = content.replace("{emoji}", emoji_str)
-                    
-                    # Send as embed
-                    embed = discord.Embed(
-                        title="Reaction Event",
-                        description=content,
-                        color=0x5865F2  # Discord blurple
-                    )
-                    embed.set_footer(text=f"Reaction: {emoji_str}")
-                    await channel.send(embed=embed)
-                    logger.info(f"Executed automation rule {rule_id}: sent message")
-            
-            elif action_type == "log":
-                logger.info(f"Automation rule {rule_id} triggered for reaction {emoji_str} by {member.name} (ID: {member.id})")
-        
-        except Exception as exc:
-            logger.error(f"Error executing automation rule {rule_id}: {exc}")
-
-@bot.event
-async def on_reaction_remove(reaction: discord.Reaction, user: discord.User):
-    """Handle reaction remove events and execute automation rules (e.g., remove roles)."""
-    if not discord_client:
-        return
-    
-    # Ignore bot reactions
-    if user.bot:
-        return
-    
-    # Get member from guild
-    if not isinstance(reaction.message.channel, discord.TextChannel):
-        return
-    
-    try:
-        member = await reaction.message.guild.fetch_member(user.id)
-    except:
-        return
-    
-    # Get emoji string (handle both Unicode and custom emojis)
-    emoji_str = str(reaction.emoji)
-    
-    # Check for enabled automation rules with reaction_added trigger
-    # Note: We use the same trigger_type but check action_payload for remove_on_unreact
-    for rule_id, rule in automation_rules.items():
-        if not rule.get("enabled", True):
-            continue
-        
-        if rule.get("trigger_type") != "reaction_added":
-            continue
-        
-        # Check if rule applies to this server
-        server_id = rule.get("server_id")
-        if server_id and str(reaction.message.guild.id) != str(server_id):
-            continue
-        
-        # Check if emoji matches trigger_value
-        trigger_value = rule.get("trigger_value", "")
-        if trigger_value and emoji_str != trigger_value:
-            continue
-        
-        # Check if message matches (optional message_id in action_payload)
-        action_payload = rule.get("action_payload", {})
-        message_id = action_payload.get("message_id")
-        if message_id and str(reaction.message.id) != str(message_id):
-            continue
-        
-        # Check if we should remove role on unreact (default: true for reaction roles)
-        remove_on_unreact = action_payload.get("remove_on_unreact", True)
-        if not remove_on_unreact:
-            continue
-        
-        try:
-            action_type = rule.get("action_type")
-            
-            if action_type == "assign_role":
-                role_id = action_payload.get("role_id")
-                if role_id:
-                    role = reaction.message.guild.get_role(int(role_id))
-                    if role and role in member.roles:
-                        await member.remove_roles(role, reason=f"Reaction role removed: {rule.get('name', rule_id)}")
-                        logger.info(f"Executed automation rule {rule_id}: removed role {role.name} from {member.name}")
-        
-        except Exception as exc:
-            logger.error(f"Error executing automation rule {rule_id} on reaction remove: {exc}")
-
-@bot.event
-async def on_message_delete(message: discord.Message):
-    """Handle message deletion events and log to staff logs."""
-    if not discord_client:
-        return
-    
-    # Ignore DMs
-    if not isinstance(message.channel, (discord.TextChannel, discord.Thread)):
-        return
-    
-    # Log to staff logs channel (if it exists)
-    try:
-        guild = message.guild
-        if not guild:
-            return
-        
-        staff_logs_channel = None
-        for ch in guild.channels:
-            if isinstance(ch, discord.TextChannel) and "staff" in ch.name.lower() and "log" in ch.name.lower():
-                staff_logs_channel = ch
-                break
-        
-        if staff_logs_channel:
-            message_content = message.content[:500] if message.content else "(No content/embed only)"
-            message_author = message.author.mention if message.author else "Unknown"
-            message_author_name = message.author.name if message.author else "Unknown"
-            
-            log_embed = discord.Embed(
-                title="🗑️ Message Deleted",
-                color=0xe74c3c,
-                timestamp=discord.utils.utcnow()
-            )
-            log_embed.add_field(name="Channel", value=f"#{message.channel.name}", inline=True)
-            log_embed.add_field(name="Author", value=f"{message_author} ({message_author_name})", inline=True)
-            log_embed.add_field(name="Message ID", value=f"`{message.id}`", inline=True)
-            
-            if message_content and message_content != "(No content/embed only)":
-                log_embed.add_field(
-                    name="Content", 
-                    value=message_content if len(message_content) <= 1024 else message_content[:1021] + "...", 
-                    inline=False
-                )
-            
-            # Try to get jump URL (may not work for deleted messages, but worth trying)
-            try:
-                jump_url = message.jump_url
-                log_embed.add_field(name="Message Link", value=f"[Jump to Message]({jump_url})", inline=False)
-            except:
-                pass
-            
-            log_embed.set_footer(text="Deleted via Discord UI or bot command")
-            await staff_logs_channel.send(embed=log_embed)
-            logger.info(f"Logged message deletion to staff logs: {message.id} in {message.channel.name}")
-    except Exception as e:
-        logger.warning(f"Failed to log message deletion to staff logs: {e}")
 
 # Helper function to ensure Discord client is ready
 def require_discord_client(func):
@@ -1450,15 +1370,15 @@ async def list_tools() -> List[Tool]:
                     },
                     "use_embed": {
                         "type": "boolean",
-                        "description": "Send message as embed (default: false)"
+                        "description": "Whether to send the message as an embed"
                     },
                     "embed_title": {
                         "type": "string",
-                        "description": "Embed title (required if use_embed is true)"
+                        "description": "Title for the embed (required if use_embed is true)"
                     },
                     "embed_color": {
                         "type": "string",
-                        "description": "Embed color in hex format (e.g., 0x5865F2)"
+                        "description": "Hex color code for the embed (e.g., '#FF0000')"
                     }
                 },
                 "required": ["channel_id", "content"]
@@ -1945,10 +1865,6 @@ async def list_tools() -> List[Tool]:
                     "category_id": {
                         "type": "string",
                         "description": "Category ID to move channel into (or null to remove from category)"
-                    },
-                    "position": {
-                        "type": "number",
-                        "description": "Channel position (0 = top, higher numbers = lower)"
                     }
                 },
                 "required": ["channel_id"]
@@ -2800,25 +2716,17 @@ async def call_tool(name: str, arguments: Any) -> List[TextContent]:
 
     if name == "send_message":
         channel = await discord_client.fetch_channel(int(arguments["channel_id"]))
-        use_embed = arguments.get("use_embed", True)  # Default to True for embeds
+        content = arguments["content"]
         
-        if use_embed:
-            embed_title = arguments.get("embed_title", "Message")
-            embed_color = arguments.get("embed_color", "0x5865F2")
-            # Parse color
-            try:
-                color_int = int(embed_color, 16) if embed_color.startswith("0x") else int(embed_color)
-            except ValueError:
-                color_int = 0x5865F2  # Default Discord blurple
-            
+        if arguments.get("use_embed", False):
             embed = discord.Embed(
-                title=embed_title,
-                description=arguments["content"],
-                color=color_int
+                title=arguments.get("embed_title", "Message"),
+                description=content,
+                color=int(arguments.get("embed_color", "#3498db").replace("#", ""), 16) if arguments.get("embed_color") else None
             )
             message = await channel.send(embed=embed)
         else:
-            message = await channel.send(arguments["content"])
+            message = await channel.send(content)
         
         return [TextContent(
             type="text",
@@ -2878,42 +2786,9 @@ async def call_tool(name: str, arguments: Any) -> List[TextContent]:
     elif name == "moderate_message":
         channel = await discord_client.fetch_channel(int(arguments["channel_id"]))
         message = await channel.fetch_message(int(arguments["message_id"]))
-        reason = arguments.get("reason", "No reason provided")
         
-        # Store message info before deletion
-        message_author = message.author
-        message_content = message.content[:500] if message.content else "(No content)"
-        message_channel = channel.name
-        message_url = message.jump_url
-        
-        # Delete the message (reason is logged but not passed to delete())
-        await message.delete()
-        
-        # Log to staff logs channel (if it exists)
-        try:
-            # Try to find staff logs channel by name
-            guild = message.guild
-            staff_logs_channel = None
-            for ch in guild.channels:
-                if isinstance(ch, discord.TextChannel) and "staff" in ch.name.lower() and "log" in ch.name.lower():
-                    staff_logs_channel = ch
-                    break
-            
-            if staff_logs_channel:
-                log_embed = discord.Embed(
-                    title="🗑️ Message Deleted",
-                    color=0xe74c3c,
-                    timestamp=discord.utils.utcnow()
-                )
-                log_embed.add_field(name="Channel", value=f"#{message_channel}", inline=True)
-                log_embed.add_field(name="Author", value=f"{message_author.mention} ({message_author.name})", inline=True)
-                log_embed.add_field(name="Message ID", value=f"`{message.id}`", inline=True)
-                log_embed.add_field(name="Content", value=message_content if len(message_content) <= 1024 else message_content[:1021] + "...", inline=False)
-                log_embed.add_field(name="Reason", value=reason, inline=False)
-                log_embed.add_field(name="Message Link", value=f"[Jump to Message]({message_url})", inline=False)
-                await staff_logs_channel.send(embed=log_embed)
-        except Exception as e:
-            logger.warning(f"Failed to log to staff logs: {e}")
+        # Delete the message
+        await message.delete(reason=arguments["reason"])
         
         # Handle timeout if specified
         if "timeout_minutes" in arguments and arguments["timeout_minutes"] > 0:
@@ -2923,7 +2798,7 @@ async def call_tool(name: str, arguments: Any) -> List[TextContent]:
                 )
                 await message.author.timeout(
                     duration,
-                    reason=reason
+                    reason=arguments["reason"]
                 )
                 return [TextContent(
                     type="text",
@@ -4559,34 +4434,11 @@ async def call_tool(name: str, arguments: Any) -> List[TextContent]:
 
     # Advanced Channel Management
     elif name == "list_channels":
-        server_id = int(arguments["server_id"])
+        guild = await discord_client.fetch_guild(int(arguments["server_id"]))
         channel_type = arguments.get("channel_type", "all")
         
-        # Use cached guild object which has channels in cache
-        guild = discord_client.get_guild(server_id)
-        if not guild:
-            # Fallback to fetching if not in cache
-            guild = await discord_client.fetch_guild(server_id)
-        
         channels = []
-        # guild.channels is a cached property that should work if bot has proper intents
-        all_channels = list(guild.channels)
-        
-        # If still no channels, try to get them from the guild's channel cache
-        if not all_channels:
-            # Try accessing channels through different methods
-            try:
-                # Get all text channels
-                text_channels = [ch for ch in guild.text_channels] if hasattr(guild, 'text_channels') else []
-                # Get all voice channels
-                voice_channels = [ch for ch in guild.voice_channels] if hasattr(guild, 'voice_channels') else []
-                # Get all categories
-                categories = [ch for ch in guild.categories] if hasattr(guild, 'categories') else []
-                all_channels = text_channels + voice_channels + categories
-            except Exception as e:
-                logger.warning(f"Could not get channels: {e}")
-        
-        for channel in sorted(all_channels, key=lambda c: (c.position if hasattr(c, 'position') else 0, c.name)):
+        for channel in sorted(guild.channels, key=lambda c: (c.position if hasattr(c, 'position') else 0, c.name)):
             channel_info = f"{channel.name} (ID: {channel.id})"
             if hasattr(channel, 'category') and channel.category:
                 channel_info += f" [Category: {channel.category.name}]"
@@ -4645,9 +4497,6 @@ async def call_tool(name: str, arguments: Any) -> List[TextContent]:
                 kwargs["category"] = category
             else:
                 kwargs["category"] = None
-        
-        if "position" in arguments:
-            kwargs["position"] = int(arguments["position"])
         
         await channel.edit(**kwargs)
         return [TextContent(type="text", text=f"Modified channel: {channel.name}")]
