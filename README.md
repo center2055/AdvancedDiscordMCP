@@ -100,7 +100,7 @@ A Model Context Protocol (MCP) server that provides Discord integration capabili
 - `unban_user`: Unban a user from the server
 - `kick_user`: Kick a user from the server
 
-## 🆕 New Features in This Fork
+## New Features in This Fork
 
 This enhanced fork includes **extensive new features** beyond the original project:
 
